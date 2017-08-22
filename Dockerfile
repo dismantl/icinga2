@@ -38,6 +38,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
           supervisor \
           unzip \
           wget \
+          dnsutils \
      && apt-get clean \
      && rm -rf /var/lib/apt/lists/*
 
