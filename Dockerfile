@@ -22,7 +22,9 @@ RUN export DEBIAN_FRONTEND=noninteractive \
           apache2 \
           ca-certificates \
           curl \
+          dnsutils \
           gnupg \
+          locales \
           lsb-release \
           mailutils \
           mariadb-client \
@@ -43,7 +45,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
      && rm -rf /var/lib/apt/lists/*
 
 RUN export DEBIAN_FRONTEND=noninteractive \
-     && wget --quiet -O - https://packages.icinga.org/icinga.key \
+     && curl -s https://packages.icinga.com/icinga.key \
      | apt-key add - \
      && echo "deb http://packages.icinga.org/debian icinga-$(lsb_release -cs) main" > /etc/apt/sources.list.d/icinga2.list \
      && export DEBIAN_FRONTEND=noninteractive \
@@ -60,8 +62,6 @@ RUN export DEBIAN_FRONTEND=noninteractive \
      && apt-get clean \
      && rm -rf /var/lib/apt/lists/*
 
-ADD content/ /
-
 ARG GITREF_ICINGAWEB2=master
 ARG GITREF_DIRECTOR=master
 ARG GITREF_MODGRAPHITE=master
@@ -75,12 +75,10 @@ RUN mkdir -p /usr/local/share/icingaweb2/modules/ \
     && mkdir -p /usr/local/share/icingaweb2/modules/director/ \
     && wget -q --no-cookies -O - "https://github.com/Icinga/icingaweb2-module-director/archive/${GITREF_DIRECTOR}.tar.gz" \
     | tar xz --strip-components=1 --directory=/usr/local/share/icingaweb2/modules/director --exclude=.gitignore -f - \
-    && icingacli module enable director \
 # Icingaweb2 Graphite
     && mkdir -p /usr/local/share/icingaweb2/modules/graphite \
     && wget -q --no-cookies -O - "https://github.com/Icinga/icingaweb2-module-graphite/archive/${GITREF_MODGRAPHITE}.tar.gz" \
     | tar xz --strip-components=1 --directory=/usr/local/share/icingaweb2/modules/graphite -f - icingaweb2-module-graphite-${GITREF_MODGRAPHITE}/ \
-    && cp -r /usr/local/share/icingaweb2/modules/graphite/sample-config/icinga2/ /etc/icingaweb2/modules/graphite \
 # Icingaweb2 AWS
     && mkdir -p /usr/local/share/icingaweb2/modules/aws \
     && wget -q --no-cookies -O - "https://github.com/Icinga/icingaweb2-module-aws/archive/${GITREF_MODAWS}.tar.gz" \
@@ -88,7 +86,12 @@ RUN mkdir -p /usr/local/share/icingaweb2/modules/ \
     && wget -q --no-cookies "https://github.com/aws/aws-sdk-php/releases/download/2.8.30/aws.zip" \
     && unzip -d /usr/local/share/icingaweb2/modules/aws/library/vendor/aws aws.zip \
     && rm aws.zip \
+    && true
+
+ADD content/ /
+
 # Final fixes
+RUN true \
     && sed -i 's/vars\.os.*/vars.os = "Docker"/' /etc/icinga2/conf.d/hosts.conf \
     && mv /etc/icingaweb2/ /etc/icingaweb2.dist \
     && mkdir /etc/icingaweb2 \
@@ -96,6 +99,8 @@ RUN mkdir -p /usr/local/share/icingaweb2/modules/ \
     && mkdir /etc/icinga2 \
     && usermod -aG icingaweb2 www-data \
     && usermod -aG nagios www-data \
+    && rm -rf \
+        /var/lib/mysql/* \
     && chmod u+s,g+s \
         /bin/ping \
         /bin/ping6 \

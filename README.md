@@ -30,7 +30,7 @@ This build is automated by push for the git-repo. Just crawl it via:
 
 Start a new container and bind to host's port 80
 
-    docker run -p 80:80 -t jordan/icinga2:latest
+    docker run -p 80:80 -h icinga2 -t jordan/icinga2:latest
 
 ## Icinga Web 2
 
@@ -38,11 +38,11 @@ Icinga Web 2 can be accessed at [http://localhost/icingaweb2](http://localhost/i
 
 ### Saving PHP Sessions
 
-If you want to save your php-sessions over multiple boots, mount `/var/lib/php5/sessions/` into your container. Session files will get saved there.
+If you want to save your php-sessions over multiple boots, mount `/var/lib/php/sessions/` into your container. Session files will get saved there.
 
 example:
 ```
-docker run [...] -v $PWD/icingaweb2-sessions:/var/lib/php5/sessions/ jordan/icinga2
+docker run [...] -v $PWD/icingaweb2-sessions:/var/lib/php/sessions/ jordan/icinga2
 ```
 
 ## Graphite
@@ -63,6 +63,15 @@ docker run -t \
 ## Icinga Director
 
 The [Icinga Director](https://github.com/Icinga/icingaweb2-module-director) Icinga Web 2 module is installed and enabled by default. You can disable the automatic kickstart when the container starts by setting the `DIRECTOR_KICKSTART` variable to false. To customize the kickstart settings, modify the `/etc/icingaweb2/modules/director/kickstart.ini`.
+
+## API Master
+
+The container gets automatically configured as an API master. But it has some caveats. Please make sure:
+
+- Set the container's hostname (`-h` or `hostname`)
+  - The hostname has to match the name, your sattelites are configured to access the master.
+- Forward the `5665` port
+- Mount **both** volumes: `/etc/icinga2`, `/var/lib/icinga2`
 
 ## Sending Notification Mails
 
@@ -118,14 +127,50 @@ For https-redirection or http/https dualstack consult `APACHE2_HTTP` env-variabl
 
 To use your own modules, you're able to install these into `enabledModules`-folder of your `/etc/icingaweb2` volume.
 
+# MySQL connections
+
+The container has support to run a MySQL server inside or access some external resources. By default, the MySQL server inside the container is setup, but when using the `docker-compose.yml` project, the server is located inside an extra container. Future releases will have this as the default and require an external MySQL/MariaDB container.
+
+If you use the image plain or the `docker-compose.yml` project, you don't have to worry about anything for MySQL. Only, if you want to split the container from the MySQL server, it's necessary to give some variables.
+
+## External MySQL servers
+
+If you have the image running plain or use the `docker-compose.yml` project, there is no necessity to fool around with these variables.
+
+To connect the container with the MySQL server, you have fine granular control via environment variables. For every necessary database, there is a set of variables, which describe the connection to it. In theory, the databases could get distributed over multiple hosts.
+
+All variables are a combination of the service and the property with the format `<SERVICE>_MYSQL_<PROPERTY>`, while
+
+- `<SERVICE>` can be one of `ICINGA2_IDO`, `ICINGAWEB2`, `ICINGAWEB2_DIRECTOR`
+- `<PROPERTY>` can be one of `HOST`, `PORT`, `DATA`, `USER`, `PASS`
+
+The variables default their respective `DEFAULT` service variable.
+
+- `DEFAULT_MYSQL_HOST`: The server hostname (defaults to `localhost`)
+- `DEFAULT_MYSQL_PORT`: The server port (defaults to `3306`)
+- `DEFAULT_MYSQL_DATA`: The database (defaults to *unset*, the specific services have separate DBs)
+	- `ICINGA2_IDO_MYSQL_DATA`: The database for icinga2 IDO (defaults to `icinga2idomysql`)
+	- `ICINGAWEB2_MYSQL_DATA`: The database for icingaweb2 (defaults to `icingaweb2`)
+	- `ICINGAWEB2_DIRECTOR_MYSQL_DATA`: The database for icingaweb2 director (defaults to `icingaweb2_director`)
+- `DEFAULT_MYSQL_USER`: The MySQL user to access the database (defaults to `icinga2`)
+- `DEFAULT_MYSQL_PASS`: The password for the MySQL user. (defaults to *randomly generated string*)
+
+## Moving to separate MySQL-container
+
+1. Start your current container as always.
+1. Run `docker exec <container> i2-port-mysqldb`
+1. Shutdown the container
+1. Copy the MySQL datafolder from the `icinga2` container to your new `mariadb` container.
+1. Change the environment variable `DEFAULT_MYSQL_HOST` to point to your new MySQL container.
+1. Add the environment variable `MYSQL_ROOT_PASSWORD` to the icinga2 container, with the value of your password you currently set.
+1. Start your container**s**.
+
+# Reference
+
 ## Environment variables Reference
 
 | Environmental Variable | Default Value | Description |
 | ---------------------- | ------------- | ----------- |
-| `ICINGA_PASSWORD` | *randomly generated* | MySQL password for icinga |
-| `ICINGAWEB2_PASSWORD` | *randomly generated* | MySQL password for icingaweb2 |
-| `DIRECTOR_PASSWORD` | *randomly generated* | MySQL password for icinga director |
-| `IDO_PASSWORD` | *randomly generated* | MySQL password for ido |
 | `ICINGA2_FEATURE_GRAPHITE` | false | Set to true or 1 to enable graphite writer |
 | `ICINGA2_FEATURE_GRAPHITE_HOST` | graphite | hostname or IP address where Carbon/Graphite daemon is running |
 | `ICINGA2_FEATURE_GRAPHITE_PORT` | 2003 | Carbon port for graphite |
@@ -135,17 +180,20 @@ To use your own modules, you're able to install these into `enabledModules`-fold
 | `ICINGAWEB2_ADMIN_USER` | icingaadmin | Icingaweb2 Login User<br>*After changing the username, you should also remove the old User in icingaweb2-> Configuration-> Authentication-> Users* |
 | `ICINGAWEB2_ADMIN_PASS` | icinga | Icingaweb2 Login Password |
 | `ICINGA2_USER_FULLNAME` | Icinga | Sender's display-name for notification e-Mails |
-| `APACHE2_HTTP` | `REDIRECT` | **Variable is only active, if both SSL-certificate and SSL-key are in place.** `BOTH`: Allow HTTP and https connections simulateously. `REDIRECT`: Rewrite HTTP-requests to HTTPS |
+| `APACHE2_HTTP` | `REDIRECT` | **Variable is only active, if both SSL-certificate and SSL-key are in place.** `BOTH`: Allow HTTP and https connections simultaneously. `REDIRECT`: Rewrite HTTP-requests to HTTPS |
+| `MYSQL_ROOT_PASSWORD` | *unset* | If your MySQL host is not on `localhost`, but you want the icinga2 container to setup the DBs for itself, specify the root password of your MySQL server in this variable. |
+| *other MySQL variables* | *none* | All combinations of MySQL variables aren't listed in this reference. Please see above in the MySQL section for this. |
 
 ## Volume Reference
 
-All these folders are configured and able to get mounted as volume. The bottom ones are not quite neccessary.
+All these folders are configured and able to get mounted as volume. The bottom ones are not quite necessary.
 
 | Volume | ro/rw | Description & Usage |
 | ------ | ----- | ------------------- |
 | /etc/apache2/ssl | **ro** | Mount optional SSL-Certificates (see SSL Support) |
+| /etc/locale.gen | **ro** | In format of the well known locale.gen file. All locales listed in this file will get generated. |
 | /etc/ssmtp/revaliases | **ro** | revaliases map (see Sending Notification Mails) |
-| /etc/ssmtp/ssmtp.conf | **ro** | ssmtp configufation (see Sending Notification Mails) |
+| /etc/ssmtp/ssmtp.conf | **ro** | ssmtp configuration (see Sending Notification Mails) |
 | /etc/icinga2 | rw | Icinga2 configuration folder |
 | /etc/icingaweb2 | rw | Icingaweb2 configuration folder |
 | /var/lib/mysql | rw | MySQL Database |
